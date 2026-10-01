@@ -1,0 +1,52 @@
+name: Generer et publier la documentation Java
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+jobs:
+  documentation:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Recuperer le code fusionne
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+
+      - name: Installer Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'corretto'
+
+      - name: Generer la Javadoc
+        run: mvn -B javadoc::javadoc
+
+      - name: Verifier le repertoire genere
+        id: javadoc
+        shell: bash
+        run: |
+          mapfile -t indexes < <(find target -type f -path '*/apidocs/index.html')
+          if [ "${#indexes[@]}" -ne 1 ]; then
+            echo "::error::Un unique repertoire Javadoc contenant index.html est attendu."
+            exit 1
+          fi
+          doc_dir="$(dirname "${indexes[0]}")"
+          test -f "$doc_dir/liste/ListeSimple.html"
+          echo "Documentation generee : $doc_dir"
+          echo "publish_dir=$doc_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Publier sur gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ${{ steps.javadoc.outputs.publish_dir }}
